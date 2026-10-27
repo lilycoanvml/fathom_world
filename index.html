@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fathom World</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="start" class="overlay">
+      <div class="pills" aria-hidden="true">
+        <span class="pill blue"></span>
+        <span class="pill green wide"></span>
+        <span class="pill terra round"></span>
+      </div>
+      <h1>Fathom World</h1>
+      <button id="start-btn" type="button">Click to explore</button>
+      <p class="sub">Sound on · Best with headphones</p>
+    </div>
+
+    <div id="paused" class="overlay hidden">
+      <h2>Paused</h2>
+      <p class="sub">Click to keep exploring</p>
+    </div>
+
+    <div id="hint" class="hint hidden" role="status">
+      <div class="hint-main">Explore freely · Walk through a portal to discover somewhere new · Press R to respawn</div>
+      <div class="hint-keys">W A S D / Arrows move · Mouse look · Shift brisk walk · M sound · H hint · Esc pause</div>
+    </div>
+
+    <div id="area" class="area" aria-live="polite"></div>
+    <div id="fade"></div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

@@ -1,0 +1,8 @@
+node_modules
+dist
+.DS_Store
+*.log
+.env*
+# Internal client materials stay out of the public repo.
+reference/
+fathom_for_ford_infinite_world_prd.md
