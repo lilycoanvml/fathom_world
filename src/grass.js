@@ -48,6 +48,9 @@ export class Grass {
           '#include <begin_vertex>',
           `#include <begin_vertex>
           vec3 ip = instanceMatrix[3].xyz;
+          // Fade blades out with distance from the camera, continuously (no rebuild pops).
+          float fadeD = length(ip.xz - cameraPosition.xz);
+          transformed *= 1.0 - smoothstep(${(RANGE * 0.55).toFixed(1)}, ${(RANGE * 0.9).toFixed(1)}, fadeD);
           // Gust bands roll across the field in the wind direction, bending and brightening blades.
           float along = dot(ip.xz, uWindDir);
           float across = dot(ip.xz, vec2(-uWindDir.y, uWindDir.x));
@@ -55,9 +58,8 @@ export class Grass {
           float flutter = sin(uTime * 2.3 + ip.x * 0.7 + ip.z * 0.5) * 0.25;
           vec2 windL = normalize((transpose(mat3(instanceMatrix)) * vec3(uWindDir.x, 0.0, uWindDir.y)).xz);
           float h2 = position.y * position.y;
-          transformed.xz += windL * h2 * (0.12 + gust * 0.42 + flutter * 0.1);
-          transformed.y -= h2 * gust * 0.12;
-          vColor.rgb *= 1.0 + gust * 0.35 * position.y;`,
+          transformed.xz += windL * h2 * (0.08 + gust * 0.22 + flutter * 0.05);
+          vColor.rgb *= 1.0 + gust * 0.2 * position.y;`,
         );
       // Light both sides of a blade like the ground beneath it.
       shader.fragmentShader = shader.fragmentShader.replace(
@@ -89,7 +91,7 @@ export class Grass {
   update(px, pz, world) {
     const cfg = this.cfg;
     if (!cfg) return;
-    if (Math.hypot(px - this.last.x, pz - this.last.y) < 4) return;
+    if (Math.hypot(px - this.last.x, pz - this.last.y) < 3) return;
     this.last.set(px, pz);
     const { m, q, c } = this;
     const up = new THREE.Vector3(0, 1, 0);
@@ -105,12 +107,13 @@ export class Grass {
         const z = (gz + hash2(gx, gz, 7)) * CELL;
         const d = Math.hypot(x - px, z - pz);
         if (d > RANGE) continue;
+        // Grass grows in soft patches, leaving open ground between.
+        const patch = world.N.fbm(x / 34 + 91, z / 34 - 23, 2);
+        const grow = THREE.MathUtils.smoothstep(patch, cfg.patch ?? 0.05, (cfg.patch ?? 0.05) + 0.2);
+        if (grow < 0.15) continue;
         const h = world.height(x, z);
         if (h < world.waterLevel + (cfg.shore ?? 0.4)) continue;
-        // Shrink toward the edge so the field never pops.
-        const fade = 1 - THREE.MathUtils.smoothstep(d, RANGE * 0.6, RANGE);
-        const k = cfg.height * (0.6 + hash2(gx, gz, 8) * 0.8) * fade;
-        if (k < 0.04) continue;
+        const k = cfg.height * (0.6 + hash2(gx, gz, 8) * 0.8) * grow;
         q.setFromAxisAngle(up, hash2(gx, gz, 9) * Math.PI * 2);
         m.compose(v.set(x, h - 0.03, z), q, s.set(k * 1.4, k, k * 1.4));
         this.mesh.setMatrixAt(n, m);
