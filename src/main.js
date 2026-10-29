@@ -29,11 +29,12 @@ renderer.toneMapping = THREE.NeutralToneMapping;
 document.body.prepend(renderer.domElement);
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(68, window.innerWidth / window.innerHeight, 0.1, 3500);
+// Far plane reaches the real horizon (~100 km of terrain) and the sky dome.
+const camera = new THREE.PerspectiveCamera(68, window.innerWidth / window.innerHeight, 0.8, 160000);
 // Layer 1 holds near-viewer detail (grass, motes) that water reflections can skip.
 camera.layers.enable(1);
 const atmosphere = new Atmosphere(scene, renderer);
-const world = new World(scene, atmosphere.shared);
+const world = new World(scene, atmosphere.shared, renderer);
 const player = new Player(camera, renderer.domElement);
 const audio = new Ambience();
 const grass = new Grass(scene, atmosphere.shared);
@@ -74,6 +75,11 @@ const ui = {
   hint: document.getElementById('hint'),
   area: document.getElementById('area'),
   fade: document.getElementById('fade'),
+  fadeText: document.getElementById('fade-text'),
+  startBtn: document.getElementById('start-btn'),
+  place: document.getElementById('place'),
+  placeName: document.getElementById('place-name'),
+  placeCoords: document.getElementById('place-coords'),
 };
 
 let started = false;
@@ -82,9 +88,9 @@ let portalLockUntil = 0;
 let hintTimer = 0;
 let areaTimer = 0;
 
-function enterArea(biomeKey, spawn) {
-  world.setBiome(biomeKey);
-  atmosphere.apply(world.biome);
+async function enterArea(biomeKey, spawn) {
+  await world.setBiome(biomeKey);
+  atmosphere.apply(world.biome, world.hf);
   const s = spawn ?? world.findSpawn(rand);
   player.teleport(s.x, s.z, s.yaw, world);
   world.update(s.x, s.z, -1);
@@ -92,6 +98,7 @@ function enterArea(biomeKey, spawn) {
   grass.update(s.x, s.z, world);
   motes.setBiome(world.biome.motes);
   audio.setBiome(world.biome.audio);
+  ui.placeName.textContent = s.name ? `${s.name} · ${world.biome.place}` : world.biome.place;
   console.info(`[fathom] ${biomeKey} @ ${s.x.toFixed(1)}, ${s.z.toFixed(1)} (seed ${seed})`);
 }
 
@@ -119,16 +126,18 @@ async function relocate(biomeKey) {
   audio.transition();
   ui.fade.style.background = BRAND_COLORS[BIOMES[biomeKey].group];
   ui.fade.style.opacity = '1';
+  ui.fadeText.textContent = `Traveling to ${BIOMES[biomeKey].place}`;
   await wait(480);
-  // Let the wash paint before the (synchronous) world rebuild.
+  // Let the wash paint before the world rebuild.
   await new Promise(requestAnimationFrame);
   try {
-    enterArea(biomeKey);
+    await enterArea(biomeKey);
   } catch (err) {
-    console.error('[fathom] spawn failed, using fallback', err);
-    enterArea('lake', { x: 0, z: 0, yaw: 0 });
+    console.error('[fathom] arrival failed, using fallback', err);
+    await enterArea(world.biomeKey ?? 'craterLake');
   }
   composer.render();
+  ui.fadeText.textContent = '';
   ui.fade.style.opacity = '0';
   showArea(world.biome);
   portalLockUntil = performance.now() + 1500;
@@ -149,6 +158,7 @@ function lock() {
 }
 
 ui.start.addEventListener('click', () => {
+  if (!ready) return;
   if (!started) {
     started = true;
     audio.start();
@@ -190,14 +200,31 @@ window.addEventListener('resize', () => {
 
 // ---------- Boot + loop ----------
 
-const startBiome = BIOMES[params.get('biome')] ? params.get('biome') : 'lake';
-enterArea(startBiome);
+const startBiome = BIOMES[params.get('biome')] ? params.get('biome') : 'bigSur';
+let ready = false;
+ui.startBtn.disabled = true;
+ui.startBtn.textContent = 'Loading…';
+enterArea(startBiome).then(() => {
+  ready = true;
+  ui.startBtn.disabled = false;
+  ui.startBtn.textContent = 'Click to explore';
+});
 
 const clock = new THREE.Clock();
 const toPortal = new THREE.Vector3();
 const right = new THREE.Vector3();
 const shared = atmosphere.shared;
 let windAngle = 0;
+let prefetched = null;
+let placeTick = 0;
+
+// Where you are, as real coordinates and elevation.
+function updatePlace() {
+  if (++placeTick % 15) return;
+  const [lat, lon] = world.hf.latLon(player.pos.x, player.pos.z);
+  const elev = Math.max(0, player.pos.y);
+  ui.placeCoords.textContent = `${Math.abs(lat).toFixed(4)}° ${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lon).toFixed(4)}° ${lon >= 0 ? 'E' : 'W'} · ${Math.round(elev * 3.281).toLocaleString()} ft`;
+}
 
 // Adaptive resolution: trade pixels for a steady frame rate on any GPU.
 let frames = 0;
@@ -224,6 +251,10 @@ renderer.setAnimationLoop(() => {
   const dt = Math.min(clock.getDelta(), 0.05);
   const t = clock.elapsedTime;
 
+  if (!ready) {
+    composer.render();
+    return;
+  }
   if (!busy) {
     player.update(dt, world);
     world.update(player.pos.x, player.pos.z);
@@ -231,6 +262,12 @@ renderer.setAnimationLoop(() => {
   }
   const { entered, nearest, nearestD } = world.portals.update(player.pos.x, player.pos.y, player.pos.z, dt);
   if (entered && !busy && started && performance.now() > portalLockUntil) relocate(entered.dest);
+
+  if (nearest && nearestD < 80 && nearest.dest !== prefetched) {
+    prefetched = nearest.dest;
+    world.prefetch(prefetched);
+  }
+  updatePlace();
 
   if (nearest) {
     toPortal.set(nearest.x - camera.position.x, 0, nearest.z - camera.position.z).normalize();

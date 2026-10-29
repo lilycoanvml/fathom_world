@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { BRAND_COLORS, BIOMES } from './biomes.js';
+import { FOG_GLSL } from './atmosphere.js';
 
 const vertexShader = /* glsl */ `
   varying vec3 vLocal;
@@ -39,6 +40,7 @@ const fragmentShader = /* glsl */ `
   uniform float uDSnow;
   uniform float uDMesa;
   uniform float uDSeed;
+  ${FOG_GLSL}
 
   varying vec3 vLocal;
   varying vec3 vNormalL;
@@ -123,7 +125,7 @@ const fragmentShader = /* glsl */ `
     }
 
     float fd = length(cameraPosition - vWorld);
-    col = mix(col, uFogColor, smoothstep(uFogNear, uFogFar * 1.15, fd) * 0.8);
+    col = mix(col, uFogColor, aerial(fd, uFogNear, uFogFar) * 0.8);
     gl_FragColor = vec4(col, 1.0);
     #include <colorspace_fragment>
   }
@@ -172,9 +174,7 @@ export class Portals {
     geo.translate(0, 0, -def.depth / 2);
     const dest = BIOMES[def.dest];
     const sunEl = THREE.MathUtils.degToRad(dest.sky.elevation);
-    const silTop = dest.silhouettes[0];
-    const silNear = dest.silhouettes[dest.silhouettes.length - 1];
-    const groundHex = dest.water ? dest.water.deep : dest.ground.stops[1][1];
+    const pv = dest.preview;
     const mat = new THREE.ShaderMaterial({
       vertexShader,
       fragmentShader,
@@ -193,13 +193,13 @@ export class Portals {
         uDZenith: { value: col(dest.sky.zenith) },
         uDHorizon: { value: col(dest.sky.horizon) },
         uDSun: { value: col(dest.sky.sun) },
-        uDSil1: { value: col(silTop.color) },
-        uDSil2: { value: col(silNear.color) },
-        uDGround: { value: col(groundHex) },
+        uDSil1: { value: col(pv.sil1) },
+        uDSil2: { value: col(pv.sil2) },
+        uDGround: { value: col(pv.ground) },
         uDSunEl: { value: sunEl },
         uDWater: { value: dest.water ? 1 : 0 },
-        uDSnow: { value: silTop.snow ? 1 : 0 },
-        uDMesa: { value: silTop.mesa ? 1 : 0 },
+        uDSnow: { value: pv.snow ? 1 : 0 },
+        uDMesa: { value: 0 },
         uDSeed: { value: dest.seed },
       },
     });
